@@ -1,0 +1,23 @@
+[project]
+name = "sports-spoiler-free-detector"
+version = "0.1.0"
+description = "For capstone design"
+readme = "README.md"
+requires-python = "==3.12.12"
+dependencies = [
+    "accelerate>=1.12.0",
+    "bs4>=0.0.2",
+    "deepface>=0.0.99",
+    "easyocr>=1.7.2",
+    "gliner2>=1.2.4",
+    "google-api-python-client>=2.188.0",
+    "label-studio>=1.22.0",
+    "label-studio-ml>=1.0.9",
+    "opencv-python>=4.13.0.92",
+    "pandas>=3.0.0",
+    "pip>=26.0",
+    "selenium>=4.40.0",
+    "tf-keras>=2.20.1",
+    "transformers>=5.2.0",
+    "ultralytics>=8.4.14",
+]
