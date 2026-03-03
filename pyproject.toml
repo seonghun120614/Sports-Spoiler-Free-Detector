@@ -16,6 +16,7 @@ dependencies = [
     "opencv-python>=4.13.0.92",
     "pandas>=3.0.0",
     "pip>=26.0",
+    "python-dotenv>=1.2.2",
     "selenium>=4.40.0",
     "tf-keras>=2.20.1",
     "transformers>=5.2.0",
