@@ -33,6 +33,7 @@ class GlinerExtractor(EntityExtractor):
 
         return self.model.extract_entities(target, self.labels)
 
+# For test
 if __name__ == "__main__":
     extractor = GlinerExtractor()
     print(extractor.extract("game is score 1:2 and winning red team"))
