@@ -9,8 +9,10 @@ from feature_extractor.extractor import EntityExtractor
 # COCO Keypoint Index 기준
 KPT_MAP = {
     'L_SHOULDER': 5, 'R_SHOULDER': 6,
-    'L_ELBOW': 7, 'R_ELBOW': 8,
-    'L_HIP': 11, 'R_HIP': 12
+    'L_ELBOW': 7,    'R_ELBOW': 8,
+    'L_HIP': 11,     'R_HIP': 12,
+    'L_KNEE': 13,    'R_KNEE': 14,   # 추가됨
+    'L_ANKLE': 15,   'R_ANKLE': 16   # 추가됨
 }
 
 
@@ -45,9 +47,9 @@ class PoseDetector(EntityExtractor):
 
         return angle
 
-    def analyze_arm_angles(self, results) -> list[dict]:
+    def analyze_angles(self, results) -> list[dict]:
         """
-        추론 결과에서 키포인트를 추출해 양팔의 벌어짐 각도를 계산합니다.
+        추론 결과에서 키포인트를 추출해 양팔과 양다리의 관절 각도를 계산합니다.
         """
         angles_list = []
 
@@ -55,31 +57,48 @@ class PoseDetector(EntityExtractor):
         if not results[0].keypoints or results[0].keypoints.xy is None:
             return angles_list
 
-        # results[0].keypoints.xy 형태: Tensor [사람 수, 17(키포인트 수), 2(x, y)]
         for kpts in results[0].keypoints.xy:
             kpts_np = kpts.cpu().numpy()
 
-            # 좌표가 0으로 찍힌 경우(탐지 실패)를 위한 방어 로직
-            if np.all(kpts_np[KPT_MAP['L_SHOULDER']] == 0):
-                continue
+            # 1. 팔 각도 계산 (어깨가 꼭짓점)
+            l_arm_angle, r_arm_angle = 0.0, 0.0
 
-            # 왼쪽 팔 (어깨가 꼭짓점)
-            l_angle = self.calculate_angle(
-                p1=kpts_np[KPT_MAP['L_HIP']],
-                p2=kpts_np[KPT_MAP['L_SHOULDER']],
-                p3=kpts_np[KPT_MAP['L_ELBOW']]
-            )
+            if not np.all(kpts_np[KPT_MAP['L_SHOULDER']] == 0):
+                l_arm_angle = self.calculate_angle(
+                    p1=kpts_np[KPT_MAP['L_HIP']],
+                    p2=kpts_np[KPT_MAP['L_SHOULDER']],
+                    p3=kpts_np[KPT_MAP['L_ELBOW']]
+                )
 
-            # 오른쪽 팔 (어깨가 꼭짓점)
-            r_angle = self.calculate_angle(
-                p1=kpts_np[KPT_MAP['R_HIP']],
-                p2=kpts_np[KPT_MAP['R_SHOULDER']],
-                p3=kpts_np[KPT_MAP['R_ELBOW']]
-            )
+            if not np.all(kpts_np[KPT_MAP['R_SHOULDER']] == 0):
+                r_arm_angle = self.calculate_angle(
+                    p1=kpts_np[KPT_MAP['R_HIP']],
+                    p2=kpts_np[KPT_MAP['R_SHOULDER']],
+                    p3=kpts_np[KPT_MAP['R_ELBOW']]
+                )
+
+            # 2. 다리 각도 계산 (무릎이 꼭짓점)
+            l_leg_angle, r_leg_angle = 0.0, 0.0
+
+            if not np.all(kpts_np[KPT_MAP['L_KNEE']] == 0):
+                l_leg_angle = self.calculate_angle(
+                    p1=kpts_np[KPT_MAP['L_HIP']],
+                    p2=kpts_np[KPT_MAP['L_KNEE']],
+                    p3=kpts_np[KPT_MAP['L_ANKLE']]
+                )
+
+            if not np.all(kpts_np[KPT_MAP['R_KNEE']] == 0):
+                r_leg_angle = self.calculate_angle(
+                    p1=kpts_np[KPT_MAP['R_HIP']],
+                    p2=kpts_np[KPT_MAP['R_KNEE']],
+                    p3=kpts_np[KPT_MAP['R_ANKLE']]
+                )
 
             angles_list.append({
-                "left_arm_angle": round(l_angle, 2),
-                "right_arm_angle": round(r_angle, 2)
+                "left_arm_angle": round(l_arm_angle, 2),
+                "right_arm_angle": round(r_arm_angle, 2),
+                "left_leg_angle": round(l_leg_angle, 2),
+                "right_leg_angle": round(r_leg_angle, 2)
             })
 
         return angles_list
@@ -92,8 +111,8 @@ if __name__ == "__main__":
     # 1. 모델 추론
     results = pose_extractor.extract(path)
 
-    # 2. 각도 계산
-    arm_angles = pose_extractor.analyze_arm_angles(results)
+    # 2. 각도 계산 (앞서 수정된 팔/다리 통합 분석 함수 사용)
+    all_angles = pose_extractor.analyze_angles(results)
 
     # 3. 시각화 및 텍스트 오버레이
     # YOLO 기본 시각화 이미지를 BGR 형태로 가져옴
@@ -103,31 +122,41 @@ if __name__ == "__main__":
     if results[0].boxes and results[0].boxes.xyxy is not None:
         boxes = results[0].boxes.xyxy.cpu().numpy()
 
-        for i, (angles, box) in enumerate(zip(arm_angles, boxes)):
-            if not (angles['left_arm_angle'] > 90. and angles['right_arm_angle'] < 90.):
-                continue
+        for i, (angles, box) in enumerate(zip(all_angles, boxes)):
             # 바운딩 박스의 좌상단 좌표 (x1, y1)
             x1, y1, x2, y2 = map(int, box)
 
-            # 출력할 텍스트 구성
-            text = f"P{i + 1}: L({angles['left_arm_angle']}), R({angles['right_arm_angle']})"
+            # 출력할 텍스트 구성 (팔, 다리 분리)
+            text_arm = f"P{i + 1} Arm: L({angles['left_arm_angle']}), R({angles['right_arm_angle']})"
+            text_leg = f"P{i + 1} Leg: L({angles['left_leg_angle']}), R({angles['right_leg_angle']})"
 
-            # 텍스트 배경(가독성 향상) 및 텍스트 추가
+            # 첫 번째 줄: 팔 각도 텍스트 렌더링 (y1에서 위로 35픽셀 띄움)
             cv2.putText(
                 annotated_image,
-                text,
-                (x1, y1 - 20),  # 바운딩 박스 약간 위
+                text_arm,
+                (x1, y1 - 35),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                1,  # 폰트 크기
-                (0, 200, 0),  # BGR 색상
-                2  # 선 두께
+                0.8,  # 화면 비율에 맞게 폰트 크기 조정
+                (0, 200, 0),  # BGR 색상 (초록색)
+                2
+            )
+
+            # 두 번째 줄: 다리 각도 텍스트 렌더링 (y1에서 위로 10픽셀 띄움)
+            cv2.putText(
+                annotated_image,
+                text_leg,
+                (x1, y1 - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 200, 0),
+                2
             )
 
     # BGR을 RGB로 변환하여 Matplotlib으로 출력
     annotated_image_rgb = annotated_image[..., ::-1]
 
-    plt.figure(figsize=(10, 8))
+    plt.figure(figsize=(12, 10))
     plt.imshow(annotated_image_rgb)
-    plt.title("Pose Estimation with Arm Angles")
+    plt.title("Pose Estimation with Arm and Leg Angles")
     plt.axis('off')
     plt.show()
