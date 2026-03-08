@@ -4,7 +4,6 @@ from PIL import Image
 from accelerate import Accelerator
 from feature_extractor.extractor import EntityExtractor
 
-
 @dataclass
 class GroundingDinoDetector(EntityExtractor):
     """

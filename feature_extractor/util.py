@@ -48,6 +48,10 @@ class DetectionVisualizer:
         self.ax.axis('off')
         plt.show()
 
+    def draw_line(self):
+        self.ax.line
+
+
 
 # For test
 if __name__ == "__main__":

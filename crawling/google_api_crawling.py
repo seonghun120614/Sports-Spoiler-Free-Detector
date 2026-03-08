@@ -3,7 +3,7 @@ import os
 from googleapiclient.discovery import build
 from crawling.util import save_image
 
-api_key = "AIzaSyCzt40eRU71D4BfA4TSNG4dowzTLUG0jpI"
+api_key = ""
 youtube = build("youtube", "v3", developerKey=api_key)
 
 def youtube_api_crawl(query,
