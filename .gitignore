@@ -1,5 +1,6 @@
 static/sports_spoiler_detection_data/
 *.pt
+**/.DS_Store
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

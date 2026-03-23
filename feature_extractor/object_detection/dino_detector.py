@@ -66,7 +66,7 @@ class GroundingDinoDetector(EntityExtractor):
 
 # For Test
 if __name__ == "__main__":
-    extractor = GroundingDinoDetector(labels=["face", "trophy", "person"])
+    extractor = GroundingDinoDetector(labels=["player lifting a trophy"])
     output = extractor.extract("static/example_image.png")
     for result in output:
         print(result)

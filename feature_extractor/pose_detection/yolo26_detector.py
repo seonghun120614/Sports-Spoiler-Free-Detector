@@ -8,11 +8,12 @@ from feature_extractor.extractor import EntityExtractor
 
 # COCO Keypoint Index 기준
 KPT_MAP = {
+    'NOSE': 0,
     'L_SHOULDER': 5, 'R_SHOULDER': 6,
     'L_ELBOW': 7,    'R_ELBOW': 8,
     'L_HIP': 11,     'R_HIP': 12,
-    'L_KNEE': 13,    'R_KNEE': 14,   # 추가됨
-    'L_ANKLE': 15,   'R_ANKLE': 16   # 추가됨
+    'L_KNEE': 13,    'R_KNEE': 14,
+    'L_ANKLE': 15,   'R_ANKLE': 16
 }
 
 
@@ -28,6 +29,7 @@ class PoseDetector(EntityExtractor):
     def extract(self, path: str) -> list:
         return self._model(path, conf=self.threshold)
 
+    @classmethod
     def calculate_angle(self, p1: tuple, p2: tuple, p3: tuple) -> float:
         """
         세 점의 좌표를 기반으로 사잇각을 계산합니다.
@@ -47,61 +49,62 @@ class PoseDetector(EntityExtractor):
 
         return angle
 
-    def analyze_angles(self, results) -> list[dict]:
+    @classmethod
+    def detect_celebration(cls, results) -> list[dict]:
         """
-        추론 결과에서 키포인트를 추출해 양팔과 양다리의 관절 각도를 계산합니다.
+        양팔 벌림(>= 90도)과 무릎 슬라이딩(<= 45도) 조건을 분석하여 논리값(Boolean)과 함께 반환합니다.
         """
-        angles_list = []
+        analysis_list = []
 
-        # 키포인트가 탐지되지 않은 경우 빈 리스트 반환
         if not results[0].keypoints or results[0].keypoints.xy is None:
-            return angles_list
+            return analysis_list
 
         for kpts in results[0].keypoints.xy:
             kpts_np = kpts.cpu().numpy()
 
-            # 1. 팔 각도 계산 (어깨가 꼭짓점)
-            l_arm_angle, r_arm_angle = 0.0, 0.0
+            # 1. 양팔-몸통 각도 (어깨가 꼭짓점: Hip - Shoulder - Elbow)
+            l_arm_angle = cls.calculate_angle(
+                kpts_np[KPT_MAP['L_HIP']], kpts_np[KPT_MAP['L_SHOULDER']], kpts_np[KPT_MAP['L_ELBOW']]
+            ) if not np.all(kpts_np[KPT_MAP['L_SHOULDER']] == 0) else 0.0
 
-            if not np.all(kpts_np[KPT_MAP['L_SHOULDER']] == 0):
-                l_arm_angle = self.calculate_angle(
-                    p1=kpts_np[KPT_MAP['L_HIP']],
-                    p2=kpts_np[KPT_MAP['L_SHOULDER']],
-                    p3=kpts_np[KPT_MAP['L_ELBOW']]
-                )
+            r_arm_angle = cls.calculate_angle(
+                kpts_np[KPT_MAP['R_HIP']], kpts_np[KPT_MAP['R_SHOULDER']], kpts_np[KPT_MAP['R_ELBOW']]
+            ) if not np.all(kpts_np[KPT_MAP['R_SHOULDER']] == 0) else 0.0
 
-            if not np.all(kpts_np[KPT_MAP['R_SHOULDER']] == 0):
-                r_arm_angle = self.calculate_angle(
-                    p1=kpts_np[KPT_MAP['R_HIP']],
-                    p2=kpts_np[KPT_MAP['R_SHOULDER']],
-                    p3=kpts_np[KPT_MAP['R_ELBOW']]
-                )
+            # 2. 허벅지-종아리 각도 (무릎이 꼭짓점: Hip - Knee - Ankle)
+            l_knee_angle = cls.calculate_angle(
+                kpts_np[KPT_MAP['L_HIP']], kpts_np[KPT_MAP['L_KNEE']], kpts_np[KPT_MAP['L_ANKLE']]
+            ) if not np.all(kpts_np[KPT_MAP['L_KNEE']] == 0) else 180.0  # 기본값 180 (직립)
 
-            # 2. 다리 각도 계산 (무릎이 꼭짓점)
-            l_leg_angle, r_leg_angle = 0.0, 0.0
+            r_knee_angle = cls.calculate_angle(
+                kpts_np[KPT_MAP['R_HIP']], kpts_np[KPT_MAP['R_KNEE']], kpts_np[KPT_MAP['R_ANKLE']]
+            ) if not np.all(kpts_np[KPT_MAP['R_KNEE']] == 0) else 180.0
 
-            if not np.all(kpts_np[KPT_MAP['L_KNEE']] == 0):
-                l_leg_angle = self.calculate_angle(
-                    p1=kpts_np[KPT_MAP['L_HIP']],
-                    p2=kpts_np[KPT_MAP['L_KNEE']],
-                    p3=kpts_np[KPT_MAP['L_ANKLE']]
-                )
+            # 3. 논리 조건 판별
+            # 팔: 양쪽 중 하나라도 90도 이상이면 벌린 것으로 간주 (혹은 양쪽 모두(and)로 엄격하게 설정 가능)
+            arms_wide_open = (l_arm_angle >= 90.0) or (r_arm_angle >= 90.0)
 
-            if not np.all(kpts_np[KPT_MAP['R_KNEE']] == 0):
-                r_leg_angle = self.calculate_angle(
-                    p1=kpts_np[KPT_MAP['R_HIP']],
-                    p2=kpts_np[KPT_MAP['R_KNEE']],
-                    p3=kpts_np[KPT_MAP['R_ANKLE']]
-                )
+            # 무릎: 양쪽 무릎 중 하나라도 45도 이하로 굽혀졌는지 확인
+            knees_sliding = (l_knee_angle <= 45.0) or (r_knee_angle <= 45.0)
 
-            angles_list.append({
-                "left_arm_angle": round(l_arm_angle, 2),
-                "right_arm_angle": round(r_arm_angle, 2),
-                "left_leg_angle": round(l_leg_angle, 2),
-                "right_leg_angle": round(r_leg_angle, 2)
+            # 최종 세리머니 성립 여부
+            is_celebration = arms_wide_open and knees_sliding
+
+            analysis_list.append({
+                "angles": {
+                    "left_arm": round(l_arm_angle, 2),
+                    "right_arm": round(r_arm_angle, 2),
+                    "left_knee": round(l_knee_angle, 2),
+                    "right_knee": round(r_knee_angle, 2)
+                },
+                "flags": {
+                    "arms_wide_open": arms_wide_open,
+                    "knees_sliding": knees_sliding,
+                    "is_celebration_matched": is_celebration
+                }
             })
 
-        return angles_list
+        return analysis_list
 
 
 if __name__ == "__main__":
@@ -112,7 +115,7 @@ if __name__ == "__main__":
     results = pose_extractor.extract(path)
 
     # 2. 각도 계산 (앞서 수정된 팔/다리 통합 분석 함수 사용)
-    all_angles = pose_extractor.analyze_angles(results)
+    all_angles = pose_extractor.detect_celebration(results)
 
     # 3. 시각화 및 텍스트 오버레이
     # YOLO 기본 시각화 이미지를 BGR 형태로 가져옴
